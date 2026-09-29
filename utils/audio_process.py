@@ -1,3 +1,7 @@
+# GOAL of this file to convert the video into audio and then make chunks of that video so that we can 
+# easily send this to Whisper(speech to text model) 
+
+
 # we are going to use the yt-dlp to download the audio from the youtube url
 # yt-dlp helps to downolad any youtube video in audio or video format
 
@@ -5,6 +9,7 @@
 # which helps us to manipulate/edit the python file
 
 # dowonolad_dir = in which all our audio , video all things be present here
+
 
 from yt_dlp.utils import DownloadError
 import yt_dlp
@@ -83,6 +88,7 @@ def convert_to_wav(input_path: str) -> str:
 
 
 
+
 # now this function will help o make the chunk of the audio file 
 # as if we have a very large audio file like 00 mins then it is not possible by 
 # whispher which is speech-to-text model then it is not possible to process whole file in one go
@@ -105,11 +111,11 @@ def chunk_audio(wav_path: str, chunk_min: int = 10) -> list[str]:
 
         base_path = os.path.splitext(wav_path)[0]
         for i, start in enumerate(range(0, len(audio), chunk_len_ms)):
-            chunk = audio[start : start + chunk_len_ms]   # this line will cut the each audio files
+            chunk = audio[start : start + chunk_len_ms]   # this line will cut the each audio files by doing slicing
             chunk_path = f"{base_path}_chunk_{i}.wav"    # this line will save the file in the list
             chunk.export(chunk_path, format="wav")   # this line will save the file in the list
 
-            chunks.append(chunk_path)
+            chunks.append(chunk_path) # appending all the file paths in chunks
 
         return chunks
 

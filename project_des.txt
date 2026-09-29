@@ -1,70 +1,179 @@
-# AI Video Assistant with RAG
+==========================================================================
+                       AI VIDEO ASSISTANT WITH RAG
+==========================================================================
 
-## Overview
-A free, fully local AI-powered meeting and video intelligence assistant. It transcribes any audio/video (YouTube link or local file), extracts structured summaries and action items, and lets users interactively ask questions about the content using Retrieval-Augmented Generation (RAG) — all without paid APIs or subscriptions.
+OVERVIEW
+--------------------------------------------------------------------------
+A free, fully local AI-powered meeting and video intelligence assistant.
+It transcribes any audio/video (YouTube link or local file), extracts
+structured summaries and action items, and lets users ask questions about
+the content using Retrieval-Augmented Generation (RAG).
+No paid APIs. No subscriptions.
 
-## Problem It Solves
-Meetings generate huge amounts of spoken information that gets lost the moment the call ends — no notes taken, action items forgotten, no way to search back through past discussions. Existing tools like Otter.ai and Fireflies solve this but cost $20–40/month. This project delivers the same core value — transcription, summarization, and searchable meeting memory — completely free and running locally, with native Hindi and Hinglish support.
 
-## Core Pipeline
+PROBLEM IT SOLVES
+--------------------------------------------------------------------------
+- Meetings generate huge spoken information that is lost after the call.
+- No notes, forgotten action items, no way to search past discussions.
+- Tools like Otter.ai and Fireflies cost $20-40/month.
+- This project gives the same core value FREE, running locally,
+  with native Hindi and Hinglish support.
 
-### Phase 1 — Core Processing Pipeline
-1. **Audio Ingestion** (`utils/audio_processor.py`)
-   - Detects whether input is a YouTube URL or a local file
-   - Downloads audio-only stream via `yt-dlp` (YouTube) or reads local upload (.mp4/.mp3/.wav/.m4a)
-   - Converts any format to WAV via `ffmpeg`
-   - Splits long audio into 10-minute chunks for stable transcription
 
-2. **Transcription** (`core/transcriber.py`)
-   - Loads OpenAI Whisper locally (model size configurable via `.env` — tiny/small/medium/large)
-   - Transcribes each chunk; supports Hindi → English translate mode
-   - Combines all chunk transcripts into one clean, unified transcript
+HIGH LEVEL ARCHITECTURE
+--------------------------------------------------------------------------
 
-3. **Translation** (`core/translator.py`)
-   - For Hindi/Hinglish transcripts, uses LangChain LCEL + Mistral AI to produce clean, professional English
-   - Preserves technical terms, names, and numbers as-is
+   YouTube URL / Local File (.mp4 .mp3 .wav .m4a)
+                      |
+                      v
+  +==========================================================+
+  |                PHASE 1 : CORE PIPELINE                   |
+  +==========================================================+
+                      |
+                      v
+        +--------------------------------------+
+        | 1. AUDIO INGESTION                   |
+        |    utils/audio_processor.py          |
+        |    - Detect URL or local file        |
+        |    - yt-dlp: download audio (URL)    |
+        |    - ffmpeg: convert to WAV          |
+        |    - Split into 10-minute chunks     |
+        +--------------------------------------+
+                      |  list of WAV chunk paths
+                      v
+        +--------------------------------------+
+        | 2. TRANSCRIPTION                     |
+        |    core/transcriber.py               |
+        |    - Whisper runs locally            |
+        |    - Model: tiny/small/medium/large  |
+        |    - Hindi -> English translate mode |
+        |    - Merge chunks into 1 transcript  |
+        +--------------------------------------+
+                      |  full transcript (text)
+                      v
+        +--------------------------------------+
+        | 3. TRANSLATION                       |
+        |    core/translator.py                |
+        |    - LangChain LCEL + Mistral AI     |
+        |    - Hindi/Hinglish -> clean English |
+        |    - Keeps tech terms, names, nums   |
+        +--------------------------------------+
+                      |  clean English transcript
+                      v
+        +--------------------------------------+
+        | 4. SUMMARIZATION                     |
+        |    core/summarizer.py                |
+        |    - RecursiveCharacterTextSplitter  |
+        |    - Map-Reduce LCEL pattern         |
+        |    - Auto title (max 8 words)        |
+        +--------------------------------------+
+                      |
+                      v
+        +--------------------------------------+
+        | 5. INFORMATION EXTRACTION            |
+        |    core/extractor.py                 |
+        |    - Reusable build_chain() LCEL     |
+        |    - Action items (owner + deadline) |
+        |    - Key decisions                   |
+        |    - Open / unresolved questions     |
+        +--------------------------------------+
+                      |
+                      v
+        +--------------------------------------+
+        | 6. ORCHESTRATION                     |
+        |    main.py                           |
+        |    - CLI: runs full pipeline         |
+        |    - Stores results in a dictionary  |
+        |    - RAG chat loop for Q&A           |
+        |    - Importable by the UI layer      |
+        +--------------------------------------+
+                      |
+                      v
+              Results  +  Chat (Phase 2)
 
-4. **Summarization** (`core/summarizer.py`)
-   - Splits long transcripts using `RecursiveCharacterTextSplitter`
-   - Applies a Map-Reduce LCEL pattern: summarizes each chunk, then merges into one final summary
-   - Auto-generates a concise meeting title (max 8 words)
 
-5. **Information Extraction** (`core/extractor.py`)
-   - Reusable `build_chain()` LCEL pattern
-   - Extracts action items (with owner + deadline), key decisions, and open/unresolved questions
+PHASE 2 : RAG (RETRIEVAL-AUGMENTED GENERATION)
+--------------------------------------------------------------------------
 
-6. **Orchestration** (`main.py`)
-   - CLI entry point that runs the full pipeline end-to-end: audio → transcribe → translate → summarize/extract
-   - Stores all results in a structured dictionary
-   - Includes an interactive RAG-based chat loop for post-processing Q&A
-   - Also importable as a module by the UI layer
+  A) INDEXING (done once per video)
 
-### Phase 2 — RAG (Retrieval-Augmented Generation)
-- Transcript is chunked (500 characters, 50-character overlap) and converted into vector embeddings using HuggingFace's `all-MiniLM-L6-v2` (runs locally on CPU)
-- Embeddings are persisted in **ChromaDB**, a local vector store
-- User questions are answered via similarity retrieval (k=4) feeding an LCEL Q&A chain — Mistral generates answers **grounded only in the retrieved transcript chunks**, preventing hallucination
-- Without RAG: the LLM has no meeting context and either admits ignorance or hallucinates an answer
-- With RAG: ChromaDB retrieves the exact relevant transcript segments, and the LLM answers strictly from that grounded context
+     Transcript
+         |
+         v
+     Split into chunks
+     (500 characters, 50 overlap)
+         |
+         v
+     Embeddings
+     (HuggingFace all-MiniLM-L6-v2, local CPU)
+         |
+         v
+     +------------------------------+
+     |  ChromaDB (local, persistent)|
+     +------------------------------+
 
-## Tech Stack
-| Layer | Technology |
-|---|---|
-| Audio Extraction | yt-dlp, ffmpeg |
-| Speech-to-Text | OpenAI Whisper (local, CPU) |
-| LLM & Orchestration | LangChain (LCEL) + Mistral AI (free tier) |
-| Vector Store | ChromaDB (local, persistent) |
-| Embeddings | HuggingFace `all-MiniLM-L6-v2` (local, CPU) |
-| Export | fpdf2 (PDF meeting notes) |
-| UI (tutorial baseline) | Streamlit |
 
-## Key Differentiators (Value Proposition)
-- **Zero subscription cost** — no paid APIs required
-- **Fully local & offline-capable** — transcription and embeddings run on-device
-- **Hindi & Hinglish support** — not just English, unlike most free alternatives
-- **RAG-grounded answers** — reduces hallucination by answering only from retrieved transcript context
+  B) QUESTION ANSWERING (every user question)
 
-## Planned Enhancements (beyond the tutorial baseline)
-- Timestamp-linked RAG answers (click an answer, jump to the exact moment in the video)
-- Confidence/grounding indicator on RAG answers
-- Speaker diarization (identify who said what)
-- Full-stack architecture (FastAPI backend + custom frontend, instead of Streamlit-only)
+     User Question
+         |
+         v
+     Embed the question
+         |
+         v
+     +------------------------------+
+     |  ChromaDB similarity search  |
+     |  retrieve top k = 4 chunks   |
+     +------------------------------+
+         |  relevant transcript chunks
+         v
+     +------------------------------+
+     |  LCEL Q&A Chain (Mistral)    |
+     |  answers ONLY from the       |
+     |  retrieved chunks            |
+     +------------------------------+
+         |
+         v
+     Grounded Answer (no hallucination)
+
+
+  WITHOUT RAG vs WITH RAG
+
+     Without RAG : LLM has no meeting context
+                   -> says "I don't know" or hallucinates
+     With RAG    : ChromaDB fetches exact transcript parts
+                   -> LLM answers strictly from that context
+
+
+TECH STACK
+--------------------------------------------------------------------------
++----------------------+-------------------------------------------+
+| Layer                | Technology                                |
++----------------------+-------------------------------------------+
+| Audio Extraction     | yt-dlp, ffmpeg                            |
+| Speech-to-Text       | OpenAI Whisper (local, CPU)               |
+| LLM & Orchestration  | LangChain (LCEL) + Mistral AI (free tier) |
+| Vector Store         | ChromaDB (local, persistent)              |
+| Embeddings           | HuggingFace all-MiniLM-L6-v2 (local, CPU) |
+| Export               | fpdf2 (PDF meeting notes)                 |
+| UI (baseline)        | Streamlit                                 |
++----------------------+-------------------------------------------+
+
+
+KEY DIFFERENTIATORS
+--------------------------------------------------------------------------
+[+] Zero subscription cost - no paid APIs required
+[+] Fully local and offline-capable - transcription and embeddings
+    run on-device
+[+] Hindi and Hinglish support - not just English
+[+] RAG-grounded answers - reduces hallucination
+
+
+PLANNED ENHANCEMENTS (beyond tutorial baseline)
+--------------------------------------------------------------------------
+[ ] Timestamp-linked RAG answers (click answer -> jump to video moment)
+[ ] Confidence / grounding indicator on RAG answers
+[ ] Speaker diarization (who said what)
+[ ] Full-stack architecture (FastAPI backend + custom frontend)
+
+==========================================================================
