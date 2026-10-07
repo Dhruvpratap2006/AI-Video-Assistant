@@ -12,12 +12,17 @@
 # 3. For Hindi/Hinglish, sends audio to Sarvam AI which returns English text
 # 4. Joins the text of all chunks into one full transcript
 # 5. Whisper model size (tiny / small / medium / large) is set in the .env file
+# 6. NEW: can also give the time (start and end) of every piece of text,
+#    so later we can say "this answer is from 12:40 in the video"
 #
 # Input : list of WAV chunk paths + language (english / hinglish / hindi)
-# Output: full transcript as one text string
+# Output: 
+#   transcribe_all()                -> full transcript as one text string
+#   transcribe_all_with_segments()  -> dictionary with full text + timed segments
 # ---------------------------------------------------------------
 
 import os
+import wave
 import requests
 import whisper
 from pydub import AudioSegment
@@ -56,6 +61,10 @@ def load_model():
         print("Whisper model loaded.")
     return _model
 
+
+# ---------------------------------------------------------------
+# PART 1 : TEXT ONLY (this is the old code, it works as before)
+# ---------------------------------------------------------------
 
 # Convert ONE audio chunk into text using Whisper
 def transcribe_chunk_whisper(chunk_path: str) -> str:
@@ -148,6 +157,114 @@ def transcribe_all(chunks: list, language: str = "english") -> str:
 
     print("Transcription complete.")
     return full_transcript.strip()
+
+
+# ---------------------------------------------------------------
+# PART 2 : TEXT + TIME (this is the new code)
+# A "segment" is one small piece of text with its start and end time:
+#   {"text": "Hello everyone", "start": 12.5, "end": 15.0}
+# ---------------------------------------------------------------
+
+# Find the real length of a WAV chunk in seconds
+# We need this to know where the next chunk starts in the full video
+def _chunk_length_seconds(chunk_path: str) -> float:
+    with wave.open(chunk_path, "rb") as wav_file:
+        # length in seconds = total frames / frames per second
+        return wav_file.getnframes() / wav_file.getframerate()
+
+
+# Convert ONE chunk using Whisper and keep the time of every sentence
+# Important: these times start from 0 at the start of THIS chunk only
+def transcribe_chunk_whisper_segments(chunk_path: str) -> list:
+    model = load_model()
+    result = model.transcribe(chunk_path, task="transcribe")
+
+    segments = []
+    for seg in result["segments"]:
+        text = seg["text"].strip()
+        # skip empty pieces
+        if text:
+            segments.append({"text": text, "start": seg["start"], "end": seg["end"]})
+    return segments
+
+
+# Convert ONE chunk using Sarvam and keep the time of every 25s piece
+# Sarvam does not give sentence times, so each 25s piece becomes one segment
+# Important: these times also start from 0 at the start of THIS chunk only
+def transcribe_chunk_sarvam_segments(chunk_path: str) -> list:
+    api_key = (SARVAM_API_KEY or os.getenv("SARVAM_API_KEY", "")).strip("\"'")
+    if not api_key:
+        raise RuntimeError("SARVAM_API_KEY is not set in environment / .env")
+
+    audio = AudioSegment.from_wav(chunk_path)
+    piece_ms = SARVAM_PIECE_SECONDS * 1000
+    total_pieces = (len(audio) + piece_ms - 1) // piece_ms  # round up
+
+    segments = []
+    for i, start in enumerate(range(0, len(audio), piece_ms)):
+        piece = audio[start: start + piece_ms]
+        piece_path = f"{chunk_path}_sv_{i}.wav"
+        piece.export(piece_path, format="wav")  # save the piece as a temp file
+
+        try:
+            print(f"  → Sarvam piece {i + 1}/{total_pieces} ...")
+            text = _send_to_sarvam(piece_path).strip()
+        finally:
+            # Delete the temp file, even if an error happened
+            if os.path.exists(piece_path):
+                os.remove(piece_path)
+
+        if text:
+            segments.append({
+                "text": text,
+                "start": start / 1000,                        # ms -> seconds
+                "end": min(start + piece_ms, len(audio)) / 1000,
+            })
+    return segments
+
+
+# Convert ALL chunks and return the full text AND the segments
+# with the REAL time of the full video
+#
+# Why "offset"?
+# Every chunk starts counting time from 0. But chunk 2 really starts at 10:00
+# in the video. So after each chunk we add its length to "offset", and we add
+# this offset to every segment time of the next chunk.
+def transcribe_all_with_segments(chunks: list, language: str = "english") -> dict:
+    is_indian = language.lower() in ("hinglish", "hindi")
+
+    # Just for printing which engine is being used
+    engine = "Sarvam AI" if is_indian else "Whisper"
+    print(f"Using {engine} for transcription.")
+
+    all_segments = []
+    offset = 0.0  # seconds of the video that are already finished
+
+    for i, chunk in enumerate(chunks):
+        print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
+
+        # Pick the right tool for this language
+        if is_indian:
+            chunk_segments = transcribe_chunk_sarvam_segments(chunk)
+        else:
+            chunk_segments = transcribe_chunk_whisper_segments(chunk)
+
+        # Move chunk times to the real video time by adding the offset
+        for seg in chunk_segments:
+            all_segments.append({
+                "text": seg["text"],
+                "start": round(seg["start"] + offset, 2),
+                "end": round(seg["end"] + offset, 2),
+            })
+
+        # The next chunk starts where this one ended
+        offset += _chunk_length_seconds(chunk)
+
+    # Join all the text into one full transcript
+    full_text = " ".join(seg["text"] for seg in all_segments)
+
+    print("Transcription complete.")
+    return {"text": full_text, "segments": all_segments}
 
 
 # Old name, kept so older code that calls transcribe_chunks still works

@@ -45,7 +45,7 @@ def get_summary(transcript : str):
 
     chunks = split_transcript(transcript) #here we are getting the chunks
 
-    chunks_summaries = [map.chain.invoke({"text" : chunk}) for chunk in chunks] #here we are generating the summaries of the chunks
+    chunks_summaries = [map_chain.invoke({"text" : chunk}) for chunk in chunks] #here we are generating the summaries of the chunks
 
     combined = "\n\n".join(chunks_summaries)
 

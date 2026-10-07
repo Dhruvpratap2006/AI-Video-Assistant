@@ -1,15 +1,21 @@
-# GOAL of this file to convert the video into audio and then make chunks of that video so that we can 
-# easily send this to Whisper(speech to text model) 
-
-
-# we are going to use the yt-dlp to download the audio from the youtube url
-# yt-dlp helps to downolad any youtube video in audio or video format
-
-# and we are going to use the pyDub this is an python library
-# which helps us to manipulate/edit the python file
-
-# dowonolad_dir = in which all our audio , video all things be present here
-
+# ---------------------------------------------------------------
+#               Audio Processing
+# File    : utils/audio_process.py
+# Purpose : Take a YouTube link or a local file and give back small
+#           WAV chunks that are ready for Whisper / Sarvam
+# ---------------------------------------------------------------
+#
+# What this file does:
+# 1. If the input is a YouTube link -> download only the audio (yt-dlp)
+# 2. If the input is a local file (.mp4 .mp3 .wav .m4a) -> use it directly
+# 3. Convert the audio to WAV, 16kHz, mono (this is what speech models like)
+# 4. Cut the long audio into 10-minute chunks
+#    (Whisper cannot handle a very long file in one go)
+#
+# Input : YouTube URL or local file path
+# Output: list of chunk file paths, for example
+#         ["video_converted_chunk_0.wav", "video_converted_chunk_1.wav"]
+# ---------------------------------------------------------------
 
 from yt_dlp.utils import DownloadError
 import yt_dlp
@@ -17,42 +23,46 @@ import os
 import imageio_ffmpeg
 from pydub import AudioSegment
 
+# Folder where all downloaded audio and chunks are saved
 DOWONOLAD_DIR = 'dowonolades'
-os.makedirs(DOWONOLAD_DIR, exist_ok=True)  # this will create the dir of name downolades
+os.makedirs(DOWONOLAD_DIR, exist_ok=True)  # create the folder if it is not there
 
-# Get the path to the ffmpeg binary bundled with imageio-ffmpeg
+# Get the path of the ffmpeg tool that comes with imageio-ffmpeg
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
-# pydub needs to be told separately where ffmpeg is (yt-dlp is told below via ydl_opts)
+# pydub also needs to know where ffmpeg is
+# (yt-dlp gets this path separately, inside ydl_opts below)
 AudioSegment.converter = FFMPEG_PATH
 
 
-# this function will going to downolad the youtube_video_audio
-# this code we have taken from the github of yt_dlp repo
+# Download the audio of a YouTube video and save it as a WAV file
+# yt-dlp is a tool that can download any YouTube video (audio or video)
 def download_youtube_audio(url: str) -> str:
+    # %(title)s and %(ext)s are filled by yt-dlp with the video title and file type
     output_path = os.path.join(DOWONOLAD_DIR, "%(title)s.%(ext)s")
     ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": output_path,
-        "ffmpeg_location": FFMPEG_PATH,
+        "format": "bestaudio/best",       # download only the best audio
+        "outtmpl": output_path,           # where and with what name to save
+        "ffmpeg_location": FFMPEG_PATH,   # tell yt-dlp where ffmpeg is
         "postprocessors": [
             {
-                "key": "FFmpegExtractAudio",
+                "key": "FFmpegExtractAudio",   # after download, convert to WAV
                 "preferredcodec": "wav",
                 "preferredquality": "192",
             }
         ],
-        "quiet": True,
+        "quiet": True,        # do not print too many messages
         "nopart": True,       # avoids Windows file-lock rename errors
-        "noplaylist": True,   # download only the single video, ignore playlist/radio links
+        "noplaylist": True,   # download only the single video, ignore playlist links
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            # Reliable filename derivation: strip any original extension and append .wav
+            # Find the saved file name: remove the old extension and add .wav
             raw_filename = ydl.prepare_filename(info)
             filename = os.path.splitext(raw_filename)[0] + ".wav"
 
+        # Make sure the file is really saved on disk
         if not os.path.exists(filename):
             raise FileNotFoundError(f"Expected audio file not found on disk: {filename}")
 
@@ -66,20 +76,18 @@ def download_youtube_audio(url: str) -> str:
         raise
 
 
-
-# this function will downolad any video which is present in .mp4 or .mp3 or in other way
-# so it will downolad it in .wav file
+# Convert any audio/video file (.mp4 .mp3 .m4a ...) into a standard WAV file
+# Standard means: 16kHz sample rate and 1 channel (mono)
+# We do this even for YouTube audio, so every file has the same format
 def convert_to_wav(input_path: str) -> str:
     """Convert any audio/video file to WAV format using pydub."""
-    # Even though yt-dlp already gives WAV, we re-process it here to
-    # standardize sample rate (16kHz) and channels (mono) for Whisper
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Input file not found: {input_path}")
 
     try:
         output_path = os.path.splitext(input_path)[0] + "_converted.wav"
         audio = AudioSegment.from_file(input_path)
-        audio = audio.set_channels(1).set_frame_rate(16000)  # 16khz
+        audio = audio.set_channels(1).set_frame_rate(16000)  # mono + 16kHz
         audio.export(output_path, format="wav")
         return output_path
     except Exception as e:
@@ -87,35 +95,31 @@ def convert_to_wav(input_path: str) -> str:
         raise
 
 
-
-
-# now this function will help o make the chunk of the audio file 
-# as if we have a very large audio file like 00 mins then it is not possible by 
-# whispher which is speech-to-text model then it is not possible to process whole file in one go
-# so we divide this into small-small segments
+# Cut a long WAV file into small chunks (default: 10 minutes each)
+# Why? A very long audio file cannot be given to Whisper in one go,
+# so we cut it into small pieces and process them one by one.
 def chunk_audio(wav_path: str, chunk_min: int = 10) -> list[str]:
     if not os.path.exists(wav_path):
         raise FileNotFoundError(f"WAV file not found: {wav_path}")
 
     try:
-        # we are going to return the list as in list we will have all our chunk files
-        audio = AudioSegment.from_wav(wav_path) # helps us to divide the audio file into differnt segment
+        # Load the full audio file
+        audio = AudioSegment.from_wav(wav_path)
         if len(audio) == 0:
             raise ValueError(f"Audio file is empty (duration 0 ms): {wav_path}")
 
-        # we are going to have chunk min = 10 but chunking works in milliseconds 
-        chunk_len_ms = chunk_min * 60 * 1000 # so here we are converting our chunks in ms
+        # pydub works in milliseconds, so convert minutes -> milliseconds
+        chunk_len_ms = chunk_min * 60 * 1000
 
-        chunks = []   # in this list we are going to store the file path of each chunk                                               
-        # run a loop on this list chunks and get the each chunk one by one
+        chunks = []  # here we keep the file path of every chunk
 
         base_path = os.path.splitext(wav_path)[0]
         for i, start in enumerate(range(0, len(audio), chunk_len_ms)):
-            chunk = audio[start : start + chunk_len_ms]   # this line will cut the each audio files by doing slicing
-            chunk_path = f"{base_path}_chunk_{i}.wav"    # this line will save the file in the list
-            chunk.export(chunk_path, format="wav")   # this line will save the file in the list
+            chunk = audio[start: start + chunk_len_ms]   # cut one piece by slicing
+            chunk_path = f"{base_path}_chunk_{i}.wav"    # name of this chunk file
+            chunk.export(chunk_path, format="wav")       # save the chunk on disk
 
-            chunks.append(chunk_path) # appending all the file paths in chunks
+            chunks.append(chunk_path)  # remember the path
 
         return chunks
 
@@ -124,17 +128,18 @@ def chunk_audio(wav_path: str, chunk_min: int = 10) -> list[str]:
         raise
 
 
-
-# this function : it takes a video/audio source and gives you back small chunks
-# which is ready for processing
+# Main function of this file
+# Takes a YouTube link or a local file and gives back a list of chunk paths
 def process_input(source: str) -> list[str]:
     try:
         if source.startswith("http://") or source.startswith("https://"):
+            # Input is a link -> download the audio first
             print("Detected YouTube video URL. Downloading audio...")
             raw_audio = download_youtube_audio(source)
             print("Standardizing to 16kHz mono WAV...")
             wav_path = convert_to_wav(raw_audio)
         else:
+            # Input is a file on the computer
             print("Detected local file. Converting to WAV...")
             wav_path = convert_to_wav(source)
 
@@ -146,6 +151,3 @@ def process_input(source: str) -> list[str]:
     except Exception as e:
         print(f"[FAILURE] Audio processing aborted: {e}")
         return []
-
-
-
