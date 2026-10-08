@@ -28,8 +28,11 @@ from pydub import AudioSegment
 DOWONOLAD_DIR = 'dowonolades'
 os.makedirs(DOWONOLAD_DIR, exist_ok=True)  # create the folder if it is not there
 
-# Get the path of the ffmpeg tool that comes with imageio-ffmpeg
-FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+import shutil
+
+# Get the path of ffmpeg (check system ffmpeg first, then bundled imageio-ffmpeg)
+system_ffmpeg = shutil.which("ffmpeg")
+FFMPEG_PATH = system_ffmpeg or imageio_ffmpeg.get_ffmpeg_exe()
 
 # pydub also needs to know where ffmpeg is
 AudioSegment.converter = FFMPEG_PATH
@@ -52,7 +55,21 @@ def fetch_youtube_transcript(url: str, language: str = "english") -> dict | None
 
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        ytt = YouTubeTranscriptApi()
+        import requests
+
+        session = None
+        cookie_path = os.path.join(DOWONOLAD_DIR, "yt_cookies.txt") if os.path.exists(os.path.join(DOWONOLAD_DIR, "yt_cookies.txt")) else ("cookies.txt" if os.path.exists("cookies.txt") else None)
+        if cookie_path:
+            import http.cookiejar
+            try:
+                jar = http.cookiejar.MozillaCookieJar(cookie_path)
+                jar.load(ignore_discard=True, ignore_expires=True)
+                session = requests.Session()
+                session.cookies = jar
+            except Exception:
+                session = None
+
+        ytt = YouTubeTranscriptApi(http_client=session) if session else YouTubeTranscriptApi()
 
         # 1. Try listing transcripts and selecting preferred language
         try:
@@ -120,6 +137,13 @@ def download_youtube_audio(url: str) -> str:
     # Check for user-provided cookies in environment (Streamlit Secrets) or local cookies.txt
     cookie_file = None
     env_cookies = os.getenv("YOUTUBE_COOKIES", "").strip()
+    if not env_cookies:
+        try:
+            import streamlit as st
+            env_cookies = str(st.secrets.get("YOUTUBE_COOKIES", "")).strip()
+        except Exception:
+            pass
+
     if env_cookies:
         temp_cookie_path = os.path.join(DOWONOLAD_DIR, "yt_cookies.txt")
         try:

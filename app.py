@@ -780,14 +780,17 @@ if reset_app_btn:
     st.rerun()
 
 # ─── Execution Logic with Live Waveform Visualizer ──────────────────────────────
-target_source = url_input_val.strip() if url_input_val else ""
-if uploaded_file is not None and not target_source:
+if uploaded_file is not None:
     temp_dir = os.path.join(os.getcwd(), "dowonolades")
     os.makedirs(temp_dir, exist_ok=True)
     temp_file_path = os.path.join(temp_dir, uploaded_file.name)
     with open(temp_file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     target_source = temp_file_path
+elif url_input_val and url_input_val.strip():
+    target_source = url_input_val.strip()
+else:
+    target_source = ""
 
 STEPS_ORDER = [
     ("audio",      "🔊 Audio Processing (16kHz Mono)"),
