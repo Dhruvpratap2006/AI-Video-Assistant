@@ -851,6 +851,7 @@ if start_analysis_btn:
             </div>
             """, unsafe_allow_html=True)
 
+        try:
             # 1 & 2. Ingest & Transcribe (Neural audio extraction & speech-to-text pipeline)
             transcript = ""
             is_remote_url = target_source.startswith("http://") or target_source.startswith("https://")
