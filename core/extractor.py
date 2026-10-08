@@ -28,8 +28,10 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 # Function for calling the LLM via Groq API
 def get_llm():
     groq_key = os.getenv("GROQ_API_KEY")
-    groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-    
+    groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip("\"'")
+    if groq_model in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"):
+        groq_model = "qwen/qwen3.8-27b"
+
     if ChatGroq is not None and groq_key:
         return ChatGroq(
             model=groq_model,
