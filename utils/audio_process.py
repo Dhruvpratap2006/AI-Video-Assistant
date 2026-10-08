@@ -17,6 +17,7 @@
 #         ["video_converted_chunk_0.wav", "video_converted_chunk_1.wav"]
 # ---------------------------------------------------------------
 
+import re
 from yt_dlp.utils import DownloadError
 import yt_dlp
 import os
@@ -31,19 +32,110 @@ os.makedirs(DOWONOLAD_DIR, exist_ok=True)  # create the folder if it is not ther
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 # pydub also needs to know where ffmpeg is
-# (yt-dlp gets this path separately, inside ydl_opts below)
 AudioSegment.converter = FFMPEG_PATH
+
+
+def extract_youtube_video_id(url: str) -> str | None:
+    """Extract standard 11-character video ID from any YouTube URL format."""
+    match = re.search(r'(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})', url)
+    return match.group(1) if match else None
+
+
+def fetch_youtube_transcript(url: str, language: str = "english") -> dict | None:
+    """
+    Fetch captions directly from YouTube via official transcript API.
+    Bypasses audio downloading and datacenter 403 bot blocks in ~0.5s.
+    """
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        return None
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        ytt = YouTubeTranscriptApi()
+
+        # 1. Try listing transcripts and selecting preferred language
+        try:
+            tl = ytt.list(video_id)
+            langs = ['en', 'en-US', 'en-GB'] if language.lower() == 'english' else ['hi', 'en', 'en-US']
+            chosen_transcript = None
+            try:
+                chosen_transcript = tl.find_transcript(langs)
+            except Exception:
+                for t in tl:
+                    chosen_transcript = t
+                    break
+
+            if chosen_transcript:
+                snippets = chosen_transcript.fetch()
+                if snippets:
+                    segments = []
+                    for s in snippets:
+                        text = getattr(s, 'text', '') if hasattr(s, 'text') else s.get('text', '')
+                        start = getattr(s, 'start', 0.0) if hasattr(s, 'start') else s.get('start', 0.0)
+                        dur = getattr(s, 'duration', 0.0) if hasattr(s, 'duration') else s.get('duration', 0.0)
+                        if text.strip():
+                            segments.append({
+                                "text": text.strip(),
+                                "start": round(float(start), 2),
+                                "end": round(float(start + dur), 2),
+                            })
+                    full_text = " ".join(seg["text"] for seg in segments)
+                    if full_text.strip():
+                        print(f"Successfully fetched YouTube transcript ({len(segments)} segments) via API.")
+                        return {"text": full_text.strip(), "segments": segments}
+        except Exception as e:
+            print(f"[Notice] Transcript list query failed ({e}), attempting direct fetch...")
+
+        # 2. Try direct fetch fallback
+        snippets = ytt.fetch(video_id)
+        if snippets:
+            segments = []
+            for s in snippets:
+                text = getattr(s, 'text', '') if hasattr(s, 'text') else s.get('text', '')
+                start = getattr(s, 'start', 0.0) if hasattr(s, 'start') else s.get('start', 0.0)
+                dur = getattr(s, 'duration', 0.0) if hasattr(s, 'duration') else s.get('duration', 0.0)
+                if text.strip():
+                    segments.append({
+                        "text": text.strip(),
+                        "start": round(float(start), 2),
+                        "end": round(float(start + dur), 2),
+                    })
+            full_text = " ".join(seg["text"] for seg in segments)
+            if full_text.strip():
+                print(f"Successfully fetched direct YouTube transcript ({len(segments)} segments).")
+                return {"text": full_text.strip(), "segments": segments}
+
+    except Exception as err:
+        print(f"[Notice] YouTube transcript API unavailable for '{video_id}': {err}")
+
+    return None
 
 
 # Download the audio of a YouTube video and save it as a WAV file
 def download_youtube_audio(url: str) -> str:
-    """Download audio from YouTube using robust client emulation to bypass HTTP 403 bot blocks."""
+    """Download audio from YouTube using robust client emulation and cookies to bypass HTTP 403 bot blocks."""
     output_template = os.path.join(DOWONOLAD_DIR, "%(id)s.%(ext)s")
 
+    # Check for user-provided cookies in environment (Streamlit Secrets) or local cookies.txt
+    cookie_file = None
+    env_cookies = os.getenv("YOUTUBE_COOKIES", "").strip()
+    if env_cookies:
+        temp_cookie_path = os.path.join(DOWONOLAD_DIR, "yt_cookies.txt")
+        try:
+            with open(temp_cookie_path, "w", encoding="utf-8") as cf:
+                cf.write(env_cookies)
+            cookie_file = temp_cookie_path
+        except Exception:
+            cookie_file = None
+    elif os.path.exists("cookies.txt"):
+        cookie_file = "cookies.txt"
+
     client_strategies = [
+        ["android"],
+        ["mweb", "ios"],
         ["ios", "android", "mweb"],
         ["android", "web"],
-        ["mweb", "ios"],
     ]
 
     last_error = None
@@ -74,6 +166,10 @@ def download_youtube_audio(url: str) -> str:
                 "Accept-Language": "en-US,en;q=0.9",
             },
         }
+
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts["cookiefile"] = cookie_file
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -89,9 +185,9 @@ def download_youtube_audio(url: str) -> str:
 
     raise RuntimeError(
         f"YouTube rejected the download request (HTTP 403 or bot block). "
-        f"YouTube frequently restricts automated stream access. "
-        f"Please try a different YouTube link, or use the 'Upload File' tab to upload the recording (.mp4, .mp3, .wav) directly. "
-        f"Details: {last_error}"
+        f"YouTube frequently restricts automated stream access from cloud providers. "
+        f"You can either: 1) Upload the recording directly (.mp4, .mp3, .wav) in the 'Upload File' tab, "
+        f"or 2) Add YOUTUBE_COOKIES to Streamlit Secrets. Details: {last_error}"
     )
 
 
