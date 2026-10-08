@@ -10,17 +10,46 @@ load_dotenv()
 
 import os 
 
-from langchain_mistralai import ChatMistralAI
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
+
+try:
+    from langchain_mistralai import ChatMistralAI
+except ImportError:
+    ChatMistralAI = None
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
-
-
-# function for calling the LLM 
+# Function for calling the LLM via Groq API
 def get_llm():
-    return ChatMistralAI(model="open-mistral-nemo", mistral_api_key=os.getenv("MISTRAL_API_KEY"), temperature=0.2)
+    groq_key = os.getenv("GROQ_API_KEY")
+    groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    
+    if ChatGroq is not None and groq_key:
+        return ChatGroq(
+            model=groq_model,
+            groq_api_key=groq_key,
+            temperature=0.2
+        )
+    elif ChatMistralAI is not None and os.getenv("MISTRAL_API_KEY"):
+        return ChatMistralAI(
+            model="open-mistral-nemo",
+            mistral_api_key=os.getenv("MISTRAL_API_KEY"),
+            temperature=0.2
+        )
+    elif ChatGroq is not None:
+        return ChatGroq(
+            model=groq_model,
+            groq_api_key=groq_key,
+            temperature=0.2
+        )
+    raise ImportError("Neither langchain-groq nor langchain-mistralai could be initialized. Please set GROQ_API_KEY.")
+
 
 # function for building the chain
 # instead of making the chain each time manually we have make the function which will make 

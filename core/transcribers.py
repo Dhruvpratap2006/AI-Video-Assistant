@@ -31,6 +31,17 @@ from dotenv import load_dotenv
 # Read the values written in the .env file
 load_dotenv()
 
+# Groq API configuration for ultra-fast cloud Whisper transcription
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip("\"'")
+groq_client = None
+if GROQ_API_KEY:
+    try:
+        from groq import Groq
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    except Exception as e:
+        print(f"Notice: Groq client could not be initialized ({e}). Using local Whisper.")
+        groq_client = None
+
 # Sarvam does not accept audio longer than 30 seconds.
 # So we cut audio into 25 second pieces (5 seconds kept as safety gap).
 SARVAM_PIECE_SECONDS = 25
@@ -68,8 +79,20 @@ def load_model():
 
 # Convert ONE audio chunk into text using Whisper
 def transcribe_chunk_whisper(chunk_path: str) -> str:
+    if groq_client:
+        try:
+            with open(chunk_path, "rb") as audio_file:
+                transcription = groq_client.audio.transcriptions.create(
+                    file=(os.path.basename(chunk_path), audio_file),
+                    model="whisper-large-v3-turbo",
+                    response_format="json",
+                )
+            return transcription.text
+        except Exception as e:
+            print(f"Groq Whisper error ({e}), falling back to local Whisper...")
+
     model = load_model()
-    result = model.transcribe(chunk_path, task="transcribe")
+    result = model.transcribe(chunk_path, task="transcribe", fp16=False)
     return result["text"]
 
 
@@ -176,8 +199,28 @@ def _chunk_length_seconds(chunk_path: str) -> float:
 # Convert ONE chunk using Whisper and keep the time of every sentence
 # Important: these times start from 0 at the start of THIS chunk only
 def transcribe_chunk_whisper_segments(chunk_path: str) -> list:
+    if groq_client:
+        try:
+            with open(chunk_path, "rb") as audio_file:
+                transcription = groq_client.audio.transcriptions.create(
+                    file=(os.path.basename(chunk_path), audio_file),
+                    model="whisper-large-v3-turbo",
+                    response_format="verbose_json",
+                )
+
+            segments = []
+            for seg in getattr(transcription, "segments", []):
+                text = seg.get("text", "").strip() if isinstance(seg, dict) else seg.text.strip()
+                start = seg.get("start", 0.0) if isinstance(seg, dict) else seg.start
+                end = seg.get("end", 0.0) if isinstance(seg, dict) else seg.end
+                if text:
+                    segments.append({"text": text, "start": start, "end": end})
+            return segments
+        except Exception as e:
+            print(f"Groq Whisper error ({e}), falling back to local Whisper...")
+
     model = load_model()
-    result = model.transcribe(chunk_path, task="transcribe")
+    result = model.transcribe(chunk_path, task="transcribe", fp16=False)
 
     segments = []
     for seg in result["segments"]:

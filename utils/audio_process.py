@@ -36,44 +36,63 @@ AudioSegment.converter = FFMPEG_PATH
 
 
 # Download the audio of a YouTube video and save it as a WAV file
-# yt-dlp is a tool that can download any YouTube video (audio or video)
 def download_youtube_audio(url: str) -> str:
-    # %(title)s and %(ext)s are filled by yt-dlp with the video title and file type
-    output_path = os.path.join(DOWONOLAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = {
-        "format": "bestaudio/best",       # download only the best audio
-        "outtmpl": output_path,           # where and with what name to save
-        "ffmpeg_location": FFMPEG_PATH,   # tell yt-dlp where ffmpeg is
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",   # after download, convert to WAV
-                "preferredcodec": "wav",
-                "preferredquality": "192",
-            }
-        ],
-        "quiet": True,        # do not print too many messages
-        "nopart": True,       # avoids Windows file-lock rename errors
-        "noplaylist": True,   # download only the single video, ignore playlist links
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            # Find the saved file name: remove the old extension and add .wav
-            raw_filename = ydl.prepare_filename(info)
-            filename = os.path.splitext(raw_filename)[0] + ".wav"
+    """Download audio from YouTube using robust client emulation to bypass HTTP 403 bot blocks."""
+    output_template = os.path.join(DOWONOLAD_DIR, "%(id)s.%(ext)s")
 
-        # Make sure the file is really saved on disk
-        if not os.path.exists(filename):
-            raise FileNotFoundError(f"Expected audio file not found on disk: {filename}")
+    client_strategies = [
+        ["ios", "android", "mweb"],
+        ["android", "web"],
+        ["mweb", "ios"],
+    ]
 
-        return filename
+    last_error = None
+    for clients in client_strategies:
+        ydl_opts = {
+            "format": "ba/b",                # Best audio, or best lightweight format with audio
+            "outtmpl": output_template,      # Windows-safe filename using video ID
+            "ffmpeg_location": FFMPEG_PATH,  # Location of ffmpeg binary
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "wav",
+                    "preferredquality": "192",
+                }
+            ],
+            "quiet": True,
+            "no_warnings": True,
+            "nopart": True,                  # Avoids Windows file locking issues
+            "noplaylist": True,              # Only single video
+            "windowsfilenames": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": clients,
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                raw_filename = ydl.prepare_filename(info)
+                filename = os.path.splitext(raw_filename)[0] + ".wav"
+                if os.path.exists(filename):
+                    print(f"Successfully downloaded audio using client: {clients}")
+                    return filename
+        except Exception as e:
+            last_error = e
+            print(f"[RETRY] YouTube client strategy {clients} failed: {e}. Trying alternative...")
+            continue
 
-    except DownloadError as e:
-        print(f"[ERROR] Failed to download YouTube video: {e}")
-        raise
-    except Exception as e:
-        print(f"[ERROR] Unexpected error during download: {e}")
-        raise
+    raise RuntimeError(
+        f"YouTube rejected the download request (HTTP 403 or bot block). "
+        f"YouTube frequently restricts automated stream access. "
+        f"Please try a different YouTube link, or use the 'Upload File' tab to upload the recording (.mp4, .mp3, .wav) directly. "
+        f"Details: {last_error}"
+    )
 
 
 # Convert any audio/video file (.mp4 .mp3 .m4a ...) into a standard WAV file
@@ -150,4 +169,4 @@ def process_input(source: str) -> list[str]:
 
     except Exception as e:
         print(f"[FAILURE] Audio processing aborted: {e}")
-        return []
+        raise RuntimeError(f"Could not download or process audio from '{source}': {e}") from e

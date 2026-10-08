@@ -128,7 +128,7 @@ PHASE 2 : RAG (RETRIEVAL-AUGMENTED GENERATION)
          |  relevant transcript chunks
          v
      +------------------------------+
-     |  LCEL Q&A Chain (Mistral)    |
+     |  LCEL Q&A Chain (Groq LPU)   |
      |  answers ONLY from the       |
      |  retrieved chunks            |
      +------------------------------+
@@ -152,11 +152,11 @@ TECH STACK
 +----------------------+-------------------------------------------+
 | Audio Extraction     | yt-dlp, ffmpeg                            |
 | Speech-to-Text       | OpenAI Whisper (local, CPU)               |
-| LLM & Orchestration  | LangChain (LCEL) + Mistral AI (free tier) |
+| LLM & Orchestration  | LangChain (LCEL) + Groq API (Llama 3.3 70B)|
 | Vector Store         | ChromaDB (local, persistent)              |
 | Embeddings           | HuggingFace all-MiniLM-L6-v2 (local, CPU) |
 | Export               | fpdf2 (PDF meeting notes)                 |
-| UI (baseline)        | Streamlit                                 |
+| UI                   | Streamlit + Standalone Web Studio         |
 +----------------------+-------------------------------------------+
 
 

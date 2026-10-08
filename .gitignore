@@ -1,6 +1,35 @@
-.envdowonolades/
+# Environment variables & API keys
 .env
+.env.*
+
+# Python caches
 __pycache__/
-*.pyc
-dowonolades/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Downloaded media & chunks
+dowonolades/*
+!dowonolades/.gitkeep
 *.wav
+*.mp3
+*.mp4
+*.m4a
+*.mov
+*.mkv
+*.webm
+
+# ChromaDB / Vector store local storage
+chroma_db/
+vector_db/
+.chroma/
+
+# System / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
