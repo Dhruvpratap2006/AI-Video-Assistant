@@ -7,18 +7,20 @@ pydub>=0.25.1                     # Audio file manipulation / format conversion
 ffmpeg-python>=0.2.0              # FFmpeg bindings
 imageio-ffmpeg>=0.4.9             # Bundled FFmpeg binaries for cross-platform support
 
-# ── Speech-to-Text (local Whisper) ────────────────────────────────────────────
-openai-whisper>=20231117          # OpenAI Whisper (runs locally)
+# ── Speech-to-Text (Groq Fast Whisper & Local Whisper) ────────────────────────
+openai-whisper>=20231117          # OpenAI Whisper (runs locally on CPU/GPU)
+groq>=0.9.0                       # Groq Cloud API for ultra-fast Whisper transcription
 torch>=2.2.0                      # PyTorch backend for Whisper
 torchaudio>=2.2.0                 # Audio utilities for PyTorch
 
 # ── Translation (Hindi → English) ─────────────────────────────────────────────
 deep-translator>=1.11.4           # Lightweight translation wrapper (Google backend)
 
-# ── LLM Orchestration — LangChain LCEL + Mistral ──────────────────────────────
+# ── LLM Orchestration — LangChain LCEL (Groq & Mistral) ───────────────────────
 langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-community>=0.2.0
+langchain-groq>=0.1.0             # LangChain wrapper for Groq LLMs
 langchain-mistralai>=0.1.0        # LangChain wrapper for Mistral API
 mistralai>=0.4.0                  # Official Mistral Python client
 

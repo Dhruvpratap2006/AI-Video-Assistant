@@ -2,7 +2,17 @@
 # vector_store code is present in the file vector_store.py
 
 import os
-from langchain_mistralai import ChatMistralAI
+
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
+
+try:
+    from langchain_mistralai import ChatMistralAI
+except ImportError:
+    ChatMistralAI = None
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
@@ -11,11 +21,24 @@ from core.vector_store import build_vector_store, load_vector_store, get_retriev
 
 # function for calling the llm
 def get_llm():
-    return ChatMistralAI(
-        model="open-mistral-nemo",
-        mistral_api_key=os.getenv("MISTRAL_API_KEY"),
-        temperature=0.3,
-    )
+    groq_key = os.getenv("GROQ_API_KEY")
+    groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip("\"'")
+    if groq_model in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"):
+        groq_model = "qwen/qwen3.8-27b"
+
+    if ChatGroq is not None and groq_key:
+        return ChatGroq(
+            model=groq_model,
+            groq_api_key=groq_key,
+            temperature=0.3
+        )
+    elif ChatMistralAI is not None and os.getenv("MISTRAL_API_KEY"):
+        return ChatMistralAI(
+            model="open-mistral-nemo",
+            mistral_api_key=os.getenv("MISTRAL_API_KEY"),
+            temperature=0.3,
+        )
+    raise ImportError("Neither GROQ_API_KEY nor MISTRAL_API_KEY is configured in your .env file.")
 
 
 def format_docs(docs):
