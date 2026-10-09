@@ -1,83 +1,122 @@
-# ⚡ NEXUS AI VIDEO ASSISTANT — RAG MEETING INTELLIGENCE
+# 🎬 AI Video Assistant — Meeting Intelligence & Video Analytics
 
-> A free, local, AI-powered meeting and video intelligence assistant with native multilingual (English & Hinglish) support, LangChain LCEL orchestration, Groq LPU (Llama 3.3 70B) ultra-fast reasoning, ChromaDB RAG retrieval, and a next-generation UI.
-
----
-
-## 🌟 Key Features
-
-- **Universal Audio Ingestion**: Process YouTube URLs directly or upload local meeting files (`.mp4`, `.mp3`, `.wav`, `.m4a`, `.mov`, `.mkv`) with automatic 16kHz mono normalization and smart chunking.
-- **Multilingual Speech-to-Text**:
-  - **English**: Local Whisper model execution with zero API costs.
-  - **Hindi & Hinglish**: High-accuracy Sarvam Saaras AI integration with direct translation to structured English.
-- **Ultra-Fast Summarization**: Map-Reduce LangChain LCEL chain powered by Groq LPU (Llama 3.3 70B at 500+ tok/sec).
-- **Structured Extraction Matrix**:
-  - **Action Items**: Explicit task description, designated owner, deadline, and priority rating.
-  - **Key Decisions**: Ratified consensus items numbered with context.
-  - **Open Questions**: Unresolved topics with one-click "Ask RAG" buttons.
-- **Interactive RAG Knowledge Assistant**:
-  - Conversational Q&A grounded exclusively in verbatim meeting segments via dense ChromaDB vector search.
-  - Pre-built suggested prompt pills for instant insights.
-- **Enterprise Export Hub**:
-  - 📄 Formal Executive PDF Report (`fpdf2` with clean typography and layout).
-  - 📝 Markdown package (`.md` for Obsidian, Notion & GitHub).
-  - 📋 Plain text summary (`.txt`).
-  - 📦 Structured JSON payload (`.json` for CRM and automated workflows).
-- **Interactive Showcase Demo**: Instant 1-second preview mode with pre-loaded realistic executive session data.
+> An AI-powered meeting and video intelligence assistant featuring native multilingual speech recognition (OpenAI Whisper & Sarvam AI), LangChain LCEL orchestration, Mistral AI reasoning, and ChromaDB Retrieval-Augmented Generation (RAG) wrapped in a custom glassmorphism Streamlit UI.
 
 ---
 
-## 🚀 Quick Start
+## 📌 Overview & Resume Highlights
 
-### 1. Environment Setup
-Make sure your Python virtual environment is activated and dependencies are installed:
-```bash
-pip install -r req.txt
-```
-
-Verify your `.env` file contains your credentials:
-```env
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-SARVAM_API_KEY=your_sarvam_key_here
-WHISPER_MODEL=small
-```
-
-### 2. Launch the Streamlit Studio UI
-```bash
-streamlit run app.py
-```
-Open your browser at `http://localhost:8501` to access the full application with the glassmorphism theme, audio visualizers, interactive checklist, and RAG chat.
-
-### 3. Standalone Web Frontend
-You can also launch the zero-dependency web frontend located in the `frontend/` directory:
-- Open `frontend/index.html` directly in any web browser, or serve it using any local static server:
-```bash
-python -m http.server 8000 --directory frontend
-```
+Designed for enterprise meeting intelligence, lecture analytics, and video knowledge extraction:
+- **Zero Cloud Transcription Cost**: Runs local OpenAI Whisper directly on CPU/GPU without cloud API per-minute billing.
+- **Multilingual Support**: Supports English via Whisper, and Hindi / Hinglish via Sarvam AI (`saaras:v2.5`) with automatic translation to English.
+- **Privacy & Security**: Media files and vector embeddings remain on the local machine (`dowonolades/` & `vector_db/`), ideal for confidential business meetings.
+- **End-to-End RAG Architecture**: Indexes transcribed speech chunks into persistent ChromaDB collections using HuggingFace embeddings (`sentence-transformers/all-MiniLM-L6-v2`) and answers user queries strictly grounded in the meeting transcript.
+- **Automated Intelligence Matrix**: Automatically extracts:
+  - Concise Meeting Titles
+  - Structured Executive Summaries
+  - Action Items & Deliverables
+  - Strategic Decisions Made
+  - Unresolved Follow-up Questions
 
 ---
 
-## 📁 Architecture Overview
+## 🛠️ Architecture & Tech Stack
+
+| Layer | Component | Description |
+|---|---|---|
+| **Audio Acquisition** | `yt-dlp` & `pydub` | Ingests YouTube URLs or local video/audio files (`.mp4`, `.mp3`, `.wav`, `.m4a`), converts to standard 16kHz mono WAV, and slices into 10-minute processing chunks. |
+| **Speech-to-Text (STT)** | OpenAI Whisper (Local) | High-accuracy local speech-to-text model for English audio. |
+| **Indic STT** | Sarvam AI (`saaras`) | Specialised speech-to-text and translation for Hindi and Hinglish audio. |
+| **Embeddings** | HuggingFace `all-MiniLM-L6-v2` | Dense semantic vector representations running locally on CPU. |
+| **Vector Store** | ChromaDB | Persistent local vector store for fast semantic similarity retrieval. |
+| **LLM Orchestration** | LangChain (LCEL) + Mistral AI | `open-mistral-nemo` used for map-reduce summarization, key information extraction, and RAG Q&A. |
+| **User Interface** | Streamlit | Glassmorphism dashboard with real-time pipeline status trackers, tabs, and interactive meeting chat. |
+
+---
+
+## 📁 Repository Structure
 
 ```
 AI Video Assistant/
-├── app.py                   # Main Streamlit Application (Ultra-Modern Glassmorphic UI)
-├── main.py                  # CLI Pipeline Orchestrator
+├── app.py                   # Streamlit Web Application (Glassmorphic UI & Interactive Chat)
+├── main.py                  # CLI Pipeline Orchestrator (Terminal execution)
+├── test.py                  # Pipeline verification and audio tests
+├── project_des.txt          # Technical architecture & project design specification
+├── req.txt                  # Python dependencies
+├── requirements.txt         # Standard requirements alias
+├── .env.example             # Template for API keys and configuration
 ├── core/
-│   ├── transcribers.py      # Whisper & Sarvam AI STT Engine
-│   ├── summarize.py         # Mistral Map-Reduce Summarizer
-│   ├── extractor.py         # Action items, Decisions & Questions LCEL chains
-│   ├── vector_store.py      # ChromaDB embeddings & indexing
-│   └── rag_engine.py        # Conversational RAG chain
+│   ├── transcribers.py      # OpenAI Whisper (Local) & Sarvam AI STT integration
+│   ├── summarize.py         # Mistral AI LCEL meeting summarizer & title generator
+│   ├── extractor.py         # Action items, key decisions, and questions extraction chains
+│   ├── vector_store.py      # ChromaDB vector store builder, persistence & retriever
+│   └── rag_engine.py        # Conversational LCEL RAG chain for question answering
 ├── utils/
-│   ├── audio_process.py     # yt-dlp & pydub conversion / chunking
-│   ├── export_helper.py     # PDF, MD, TXT, JSON generation & parsers
-│   └── demo_data.py         # Realistic demo dataset for instant UI preview
-├── frontend/                # Standalone HTML5 / CSS3 / Vanilla JS Web App
-│   ├── index.html           # Modern Studio Layout
-│   ├── style.css            # Dark Obsidian Glassmorphism Design System
-│   └── app.js               # Canvas visualizer & interactive controller
-├── dowonolades/             # Local cache for audio chunks
-└── req.txt                  # Python dependencies
+│   └── audio_process.py     # YouTube audio download (yt-dlp), format standardization & chunking
+└── dowonolades/             # Local cache for audio files and processing chunks
 ```
+
+---
+
+## 🚀 Getting Started (Local Setup)
+
+### 1. Prerequisites
+- **Python 3.10+**
+- **FFmpeg** (installed locally or automatically handled via `imageio-ffmpeg`)
+
+### 2. Clone and Setup Environment
+```bash
+git clone https://github.com/Dhruvpratap2006/AI-Video-Assistant.git
+cd "AI Video Assistant"
+
+# Create a virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r req.txt
+```
+
+### 3. Configure Environment Variables
+Copy the template to `.env`:
+```bash
+cp .env.example .env
+```
+Add your credentials:
+```env
+MISTRAL_API_KEY=your_mistral_api_key_here
+SARVAM_API_KEY=your_sarvam_api_key_here
+SARVAM_STT_MODEL=saaras:v2.5
+WHISPER_MODEL=small
+```
+
+> **API Key Resources:**
+> - [Mistral AI Console](https://console.mistral.ai/)
+> - [Sarvam AI Dashboard](https://dashboard.sarvam.ai/)
+
+### 4. Run the Application
+
+#### Option A: Streamlit UI
+```bash
+streamlit run app.py
+```
+Open your browser at `http://localhost:8501`. Enter any YouTube link or local media path and click **Analyse Video**.
+
+#### Option B: Terminal CLI
+```bash
+python main.py
+```
+
+---
+
+## 💡 System Design Note (Local vs Cloud Free Tier)
+
+This system is deliberately architected to run on local workstations rather than resource-constrained cloud free tiers (such as Streamlit Cloud or HuggingFace Spaces free tier):
+1. **Model Weight Footprint**: Running local Whisper models and dense transformer embeddings requires reliable CPU memory/GPU access that exceeds typical 1GB free tier sandbox limits.
+2. **Streaming Anti-Bot Restrictions**: Cloud hosting provider IP ranges (e.g. AWS, GCP) are routinely rate-limited or blocked by YouTube when extracting video streams via `yt-dlp`. Running locally uses the client's residential network, ensuring uninterrupted extraction.
+3. **Data Sovereignty**: Video recordings of meetings frequently contain proprietary or sensitive discussion that should not be transmitted to shared cloud servers.

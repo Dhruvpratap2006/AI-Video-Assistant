@@ -17,7 +17,6 @@
 #         ["video_converted_chunk_0.wav", "video_converted_chunk_1.wav"]
 # ---------------------------------------------------------------
 
-import re
 from yt_dlp.utils import DownloadError
 import yt_dlp
 import os
@@ -28,191 +27,53 @@ from pydub import AudioSegment
 DOWONOLAD_DIR = 'dowonolades'
 os.makedirs(DOWONOLAD_DIR, exist_ok=True)  # create the folder if it is not there
 
-import shutil
-
-# Get the path of ffmpeg (check system ffmpeg first, then bundled imageio-ffmpeg)
-system_ffmpeg = shutil.which("ffmpeg")
-FFMPEG_PATH = system_ffmpeg or imageio_ffmpeg.get_ffmpeg_exe()
+# Get the path of the ffmpeg tool that comes with imageio-ffmpeg
+FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 # pydub also needs to know where ffmpeg is
+# (yt-dlp gets this path separately, inside ydl_opts below)
 AudioSegment.converter = FFMPEG_PATH
 
 
-def extract_youtube_video_id(url: str) -> str | None:
-    """Extract standard 11-character video ID from any YouTube URL format."""
-    match = re.search(r'(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})', url)
-    return match.group(1) if match else None
-
-
-def fetch_youtube_transcript(url: str, language: str = "english") -> dict | None:
-    """
-    Fetch captions directly from YouTube via official transcript API.
-    Bypasses audio downloading and datacenter 403 bot blocks in ~0.5s.
-    """
-    video_id = extract_youtube_video_id(url)
-    if not video_id:
-        return None
-
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-        import requests
-
-        session = None
-        cookie_path = os.path.join(DOWONOLAD_DIR, "yt_cookies.txt") if os.path.exists(os.path.join(DOWONOLAD_DIR, "yt_cookies.txt")) else ("cookies.txt" if os.path.exists("cookies.txt") else None)
-        if cookie_path:
-            import http.cookiejar
-            try:
-                jar = http.cookiejar.MozillaCookieJar(cookie_path)
-                jar.load(ignore_discard=True, ignore_expires=True)
-                session = requests.Session()
-                session.cookies = jar
-            except Exception:
-                session = None
-
-        ytt = YouTubeTranscriptApi(http_client=session) if session else YouTubeTranscriptApi()
-
-        # 1. Try listing transcripts and selecting preferred language
-        try:
-            tl = ytt.list(video_id)
-            langs = ['en', 'en-US', 'en-GB'] if language.lower() == 'english' else ['hi', 'en', 'en-US']
-            chosen_transcript = None
-            try:
-                chosen_transcript = tl.find_transcript(langs)
-            except Exception:
-                for t in tl:
-                    chosen_transcript = t
-                    break
-
-            if chosen_transcript:
-                snippets = chosen_transcript.fetch()
-                if snippets:
-                    segments = []
-                    for s in snippets:
-                        text = getattr(s, 'text', '') if hasattr(s, 'text') else s.get('text', '')
-                        start = getattr(s, 'start', 0.0) if hasattr(s, 'start') else s.get('start', 0.0)
-                        dur = getattr(s, 'duration', 0.0) if hasattr(s, 'duration') else s.get('duration', 0.0)
-                        if text.strip():
-                            segments.append({
-                                "text": text.strip(),
-                                "start": round(float(start), 2),
-                                "end": round(float(start + dur), 2),
-                            })
-                    full_text = " ".join(seg["text"] for seg in segments)
-                    if full_text.strip():
-                        print(f"Successfully fetched YouTube transcript ({len(segments)} segments) via API.")
-                        return {"text": full_text.strip(), "segments": segments}
-        except Exception as e:
-            print(f"[Notice] Transcript list query failed ({e}), attempting direct fetch...")
-
-        # 2. Try direct fetch fallback
-        snippets = ytt.fetch(video_id)
-        if snippets:
-            segments = []
-            for s in snippets:
-                text = getattr(s, 'text', '') if hasattr(s, 'text') else s.get('text', '')
-                start = getattr(s, 'start', 0.0) if hasattr(s, 'start') else s.get('start', 0.0)
-                dur = getattr(s, 'duration', 0.0) if hasattr(s, 'duration') else s.get('duration', 0.0)
-                if text.strip():
-                    segments.append({
-                        "text": text.strip(),
-                        "start": round(float(start), 2),
-                        "end": round(float(start + dur), 2),
-                    })
-            full_text = " ".join(seg["text"] for seg in segments)
-            if full_text.strip():
-                print(f"Successfully fetched direct YouTube transcript ({len(segments)} segments).")
-                return {"text": full_text.strip(), "segments": segments}
-
-    except Exception as err:
-        print(f"[Notice] YouTube transcript API unavailable for '{video_id}': {err}")
-
-    return None
-
-
 # Download the audio of a YouTube video and save it as a WAV file
+# yt-dlp is a tool that can download any YouTube video (audio or video)
 def download_youtube_audio(url: str) -> str:
-    """Download audio from YouTube using robust client emulation and cookies to bypass HTTP 403 bot blocks."""
-    output_template = os.path.join(DOWONOLAD_DIR, "%(id)s.%(ext)s")
+    # %(title)s and %(ext)s are filled by yt-dlp with the video title and file type
+    output_path = os.path.join(DOWONOLAD_DIR, "%(title)s.%(ext)s")
+    ydl_opts = {
+        "format": "bestaudio/best",       # download only the best audio
+        "outtmpl": output_path,           # where and with what name to save
+        "ffmpeg_location": FFMPEG_PATH,   # tell yt-dlp where ffmpeg is
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",   # after download, convert to WAV
+                "preferredcodec": "wav",
+                "preferredquality": "192",
+            }
+        ],
+        "quiet": True,        # do not print too many messages
+        "nopart": True,       # avoids Windows file-lock rename errors
+        "noplaylist": True,   # download only the single video, ignore playlist links
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            # Find the saved file name: remove the old extension and add .wav
+            raw_filename = ydl.prepare_filename(info)
+            filename = os.path.splitext(raw_filename)[0] + ".wav"
 
-    # Check for user-provided cookies in environment (Streamlit Secrets) or local cookies.txt
-    cookie_file = None
-    env_cookies = os.getenv("YOUTUBE_COOKIES", "").strip()
-    if not env_cookies:
-        try:
-            import streamlit as st
-            env_cookies = str(st.secrets.get("YOUTUBE_COOKIES", "")).strip()
-        except Exception:
-            pass
+        # Make sure the file is really saved on disk
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"Expected audio file not found on disk: {filename}")
 
-    if env_cookies:
-        temp_cookie_path = os.path.join(DOWONOLAD_DIR, "yt_cookies.txt")
-        try:
-            with open(temp_cookie_path, "w", encoding="utf-8") as cf:
-                cf.write(env_cookies)
-            cookie_file = temp_cookie_path
-        except Exception:
-            cookie_file = None
-    elif os.path.exists("cookies.txt"):
-        cookie_file = "cookies.txt"
+        return filename
 
-    client_strategies = [
-        ["android"],
-        ["mweb", "ios"],
-        ["ios", "android", "mweb"],
-        ["android", "web"],
-    ]
-
-    last_error = None
-    for clients in client_strategies:
-        ydl_opts = {
-            "format": "ba/b",                # Best audio, or best lightweight format with audio
-            "outtmpl": output_template,      # Windows-safe filename using video ID
-            "ffmpeg_location": FFMPEG_PATH,  # Location of ffmpeg binary
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "wav",
-                    "preferredquality": "192",
-                }
-            ],
-            "quiet": True,
-            "no_warnings": True,
-            "nopart": True,                  # Avoids Windows file locking issues
-            "noplaylist": True,              # Only single video
-            "windowsfilenames": True,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": clients,
-                }
-            },
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        }
-
-        if cookie_file and os.path.exists(cookie_file):
-            ydl_opts["cookiefile"] = cookie_file
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                raw_filename = ydl.prepare_filename(info)
-                filename = os.path.splitext(raw_filename)[0] + ".wav"
-                if os.path.exists(filename):
-                    print(f"Successfully downloaded audio using client: {clients}")
-                    return filename
-        except Exception as e:
-            last_error = e
-            print(f"[RETRY] YouTube client strategy {clients} failed: {e}. Trying alternative...")
-            continue
-
-    raise RuntimeError(
-        f"YouTube rejected the download request (HTTP 403 or bot block). "
-        f"YouTube frequently restricts automated stream access from cloud providers. "
-        f"You can either: 1) Upload the recording directly (.mp4, .mp3, .wav) in the 'Upload File' tab, "
-        f"or 2) Add YOUTUBE_COOKIES to Streamlit Secrets. Details: {last_error}"
-    )
+    except DownloadError as e:
+        print(f"[ERROR] Failed to download YouTube video: {e}")
+        raise
+    except Exception as e:
+        print(f"[ERROR] Unexpected error during download: {e}")
+        raise
 
 
 # Convert any audio/video file (.mp4 .mp3 .m4a ...) into a standard WAV file
@@ -289,4 +150,4 @@ def process_input(source: str) -> list[str]:
 
     except Exception as e:
         print(f"[FAILURE] Audio processing aborted: {e}")
-        raise RuntimeError(f"Could not download or process audio from '{source}': {e}") from e
+        return []

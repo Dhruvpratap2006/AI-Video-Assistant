@@ -57,9 +57,7 @@ def build_vector_store(transcript : str)->Chroma:
     )
 
     # Step 2: cut the full transcript into a list of small text pieces
-    chunks = splitter.split_text(transcript.strip() or "No transcript text available.")
-    if not chunks:
-        chunks = ["No transcript text available."]
+    chunks = splitter.split_text(transcript)
 
     # Step 3: put every chunk into a Document box.
     # metadata = extra info. Here we save the chunk number (0, 1, 2, ...)

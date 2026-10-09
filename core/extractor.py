@@ -10,48 +10,17 @@ load_dotenv()
 
 import os 
 
-try:
-    from langchain_groq import ChatGroq
-except ImportError:
-    ChatGroq = None
-
-try:
-    from langchain_mistralai import ChatMistralAI
-except ImportError:
-    ChatMistralAI = None
-
+from langchain_mistralai import ChatMistralAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
-# Function for calling the LLM via Groq API
+
+
+# function for calling the LLM 
 def get_llm():
-    groq_key = os.getenv("GROQ_API_KEY")
-    groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip("\"'")
-    if groq_model in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"):
-        groq_model = "qwen/qwen3.8-27b"
-
-    if ChatGroq is not None and groq_key:
-        return ChatGroq(
-            model=groq_model,
-            groq_api_key=groq_key,
-            temperature=0.2
-        )
-    elif ChatMistralAI is not None and os.getenv("MISTRAL_API_KEY"):
-        return ChatMistralAI(
-            model="open-mistral-nemo",
-            mistral_api_key=os.getenv("MISTRAL_API_KEY"),
-            temperature=0.2
-        )
-    elif ChatGroq is not None:
-        return ChatGroq(
-            model=groq_model,
-            groq_api_key=groq_key,
-            temperature=0.2
-        )
-    raise ImportError("Neither langchain-groq nor langchain-mistralai could be initialized. Please set GROQ_API_KEY.")
-
+    return ChatMistralAI(model="open-mistral-nemo", mistral_api_key=os.getenv("MISTRAL_API_KEY"), temperature=0.2)
 
 # function for building the chain
 # instead of making the chain each time manually we have make the function which will make 
