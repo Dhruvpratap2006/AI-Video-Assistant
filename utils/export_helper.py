@@ -1,0 +1,297 @@
+"""
+Export utilities for AI Video Assistant.
+Generates PDF, Markdown, Text, and JSON reports with full sanitization.
+"""
+
+import json
+import re
+from datetime import datetime
+
+try:
+    from fpdf import FPDF
+    FPDF_AVAILABLE = True
+except ImportError:
+    FPDF_AVAILABLE = False
+
+
+def sanitize_for_pdf(text: str) -> str:
+    """Replace non-latin characters and unicode symbols so FPDF Helvetica can encode it cleanly."""
+    if not text:
+        return ""
+    replacements = {
+        "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "-",
+        "\u2022": "*", "\u2026": "...",
+        "\u00a0": " ", "\u2705": "[x]",
+        "\u2713": "[x]", "\u25cf": "*",
+        "•": "*", "—": "-", "–": "-",
+        "“": '"', "”": '"', "‘": "'", "’": "'",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    # Remove any remaining characters outside latin-1
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
+def parse_action_items_structured(raw_text: str) -> list[dict]:
+    """Parse raw LLM output into structured action item objects."""
+    if not raw_text or "No action items found" in raw_text:
+        return []
+    
+    items = []
+    # Match patterns like:
+    # 1. Task: ... Owner: ... Deadline: ...
+    # or bullet points
+    blocks = re.split(r'\n(?=\d+[\.\)]|\s*[-*]\s*Task:|\s*Task\s*\d+:)', raw_text)
+    
+    for i, block in enumerate(blocks, 1):
+        clean_block = block.strip()
+        if not clean_block:
+            continue
+        
+        task_match = re.search(r'(?:Task(?:\s*description)?\s*:\s*|^[\d\.\-\*\s]+)(.+?)(?=(?:Owner|Deadline|Priority|$|\n\s*Owner))', clean_block, re.IGNORECASE | re.DOTALL)
+        owner_match = re.search(r'Owner\s*:\s*([^,\n]+)', clean_block, re.IGNORECASE)
+        deadline_match = re.search(r'Deadline\s*:\s*([^,\n]+)', clean_block, re.IGNORECASE)
+        priority_match = re.search(r'Priority\s*:\s*([^,\n]+)', clean_block, re.IGNORECASE)
+
+        # Fallback if structured regex doesn't match clean lines
+        lines = [l.strip() for l in clean_block.split("\n") if l.strip()]
+        first_line = lines[0] if lines else f"Action item #{i}"
+        first_line = re.sub(r'^[\d\.\-\*\s]+', '', first_line).strip()
+        if first_line.lower().startswith("task:"):
+            first_line = first_line[5:].strip()
+
+        task = task_match.group(1).strip() if task_match else first_line
+        # Clean task of multi-line spillover
+        task = task.split("\n")[0].strip() if "\n" in task else task
+        owner = owner_match.group(1).strip() if owner_match else "Unassigned"
+        deadline = deadline_match.group(1).strip() if deadline_match else "Flexible"
+        priority = priority_match.group(1).strip() if priority_match else "Medium"
+
+        items.append({
+            "id": i,
+            "task": task or f"Action item #{i}",
+            "owner": owner,
+            "deadline": deadline,
+            "priority": priority.capitalize() if priority in ["High", "Medium", "Low"] else "Medium",
+            "completed": False
+        })
+
+    return items
+
+
+def parse_key_decisions_list(raw_text: str) -> list[str]:
+    """Parse raw key decisions string into list of clean strings."""
+    if not raw_text or "No key decisions found" in raw_text:
+        return []
+    lines = raw_text.strip().split("\n")
+    decisions = []
+    for line in lines:
+        cleaned = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
+        if cleaned:
+            decisions.append(cleaned)
+    return decisions
+
+
+def parse_open_questions_list(raw_text: str) -> list[str]:
+    """Parse raw open questions string into list of clean strings."""
+    if not raw_text or "No open questions found" in raw_text:
+        return []
+    lines = raw_text.strip().split("\n")
+    questions = []
+    for line in lines:
+        cleaned = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
+        if cleaned:
+            questions.append(cleaned)
+    return questions
+
+
+def generate_pdf(data: dict) -> bytes:
+    """Generate a clean executive PDF report."""
+    if not FPDF_AVAILABLE:
+        return b""
+
+    class ExecutivePDF(FPDF):
+        def header(self):
+            self.set_fill_color(15, 17, 34)
+            self.rect(0, 0, 210, 24, "F")
+            self.set_text_color(255, 255, 255)
+            self.set_font("Helvetica", "B", 12)
+            self.set_xy(10, 7)
+            self.cell(0, 10, "NEXUS AI  |  EXECUTIVE INTELLIGENCE REPORT", ln=False)
+            self.set_font("Helvetica", "", 9)
+            self.set_xy(140, 7)
+            self.cell(60, 10, datetime.now().strftime("%Y-%m-%d %H:%M"), align="R")
+            self.ln(20)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(130, 130, 150)
+            self.cell(0, 10, f"Page {self.page_no()}/{{nb}} - Generated by AI Video Assistant", align="C")
+
+    pdf = ExecutivePDF()
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    # Title
+    pdf.set_text_color(30, 30, 60)
+    pdf.set_font("Helvetica", "B", 18)
+    title = sanitize_for_pdf(data.get("title", "Meeting Executive Summary"))
+    pdf.multi_cell(0, 9, title)
+    pdf.ln(3)
+
+    # Subtitle / metadata
+    pdf.set_text_color(100, 100, 120)
+    pdf.set_font("Helvetica", "I", 9)
+    metadata_line = f"Generated: {datetime.now().strftime('%B %d, %Y')}  |  Confidential & Internal"
+    pdf.cell(0, 6, metadata_line, ln=True)
+    pdf.ln(5)
+
+    # Divider
+    pdf.set_draw_color(220, 220, 235)
+    pdf.set_line_width(0.5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(6)
+
+    # 1. Executive Summary
+    pdf.set_text_color(123, 63, 228)  # violet
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 8, "1. Executive Summary", ln=True)
+    pdf.ln(1)
+
+    pdf.set_text_color(40, 40, 50)
+    pdf.set_font("Helvetica", "", 10)
+    summary_text = sanitize_for_pdf(data.get("summary", "No summary available."))
+    pdf.multi_cell(0, 6, summary_text)
+    pdf.ln(6)
+
+    # 2. Key Decisions
+    decisions = data.get("key_decisions", "")
+    if decisions:
+        pdf.set_text_color(0, 140, 180)  # cyan
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 8, "2. Key Strategic Decisions", ln=True)
+        pdf.ln(1)
+        pdf.set_text_color(40, 40, 50)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, sanitize_for_pdf(decisions))
+        pdf.ln(6)
+
+    # 3. Action Items
+    actions = data.get("action_items", "")
+    if actions:
+        pdf.set_text_color(16, 163, 127)  # emerald
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 8, "3. Assigned Action Items", ln=True)
+        pdf.ln(1)
+        pdf.set_text_color(40, 40, 50)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, sanitize_for_pdf(actions))
+        pdf.ln(6)
+
+    # 4. Open Questions
+    questions = data.get("open_questions", "")
+    if questions:
+        pdf.set_text_color(217, 119, 6)  # amber
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 8, "4. Open Questions & Follow-ups", ln=True)
+        pdf.ln(1)
+        pdf.set_text_color(40, 40, 50)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, sanitize_for_pdf(questions))
+        pdf.ln(6)
+
+    return bytes(pdf.output())
+
+
+def generate_markdown(data: dict) -> str:
+    """Generate structured markdown document."""
+    title = data.get("title", "Meeting Notes")
+    summary = data.get("summary", "")
+    actions = data.get("action_items", "")
+    decisions = data.get("key_decisions", "")
+    questions = data.get("open_questions", "")
+    transcript = data.get("transcript", "")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    md = f"""# {title}
+
+> Generated on {ts} by **AI Video Assistant**
+> Retrieval & Analysis Engine: Whisper + Groq LPU (Llama 3.3 70B) LCEL
+
+---
+
+## 📋 Executive Summary
+{summary}
+
+---
+
+## 🎯 Action Items
+{actions}
+
+---
+
+## 🔑 Key Decisions
+{decisions}
+
+---
+
+## ❓ Open Questions & Follow-ups
+{questions}
+
+---
+
+## 📝 Full Transcript
+```text
+{transcript}
+```
+"""
+    return md
+
+
+def generate_txt(data: dict) -> str:
+    """Generate clean plain text file."""
+    title = data.get("title", "Meeting Notes")
+    sep = "=" * 70
+    return f"""{sep}
+{title.upper()}
+Date: {datetime.now().strftime("%Y-%m-%d %H:%M")}
+{sep}
+
+[EXECUTIVE SUMMARY]
+{data.get("summary", "")}
+
+----------------------------------------------------------------------
+[ACTION ITEMS]
+{data.get("action_items", "")}
+
+----------------------------------------------------------------------
+[KEY DECISIONS]
+{data.get("key_decisions", "")}
+
+----------------------------------------------------------------------
+[OPEN QUESTIONS]
+{data.get("open_questions", "")}
+
+----------------------------------------------------------------------
+[TRANSCRIPT]
+{data.get("transcript", "")}
+"""
+
+
+def generate_json(data: dict) -> str:
+    """Generate clean structured JSON export."""
+    clean_dict = {
+        "title": data.get("title", ""),
+        "timestamp": datetime.now().isoformat(),
+        "summary": data.get("summary", ""),
+        "action_items_raw": data.get("action_items", ""),
+        "action_items_structured": parse_action_items_structured(data.get("action_items", "")),
+        "key_decisions": parse_key_decisions_list(data.get("key_decisions", "")),
+        "open_questions": parse_open_questions_list(data.get("open_questions", "")),
+        "transcript": data.get("transcript", "")
+    }
+    return json.dumps(clean_dict, indent=2, ensure_ascii=False)
